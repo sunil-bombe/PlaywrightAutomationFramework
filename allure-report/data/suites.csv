@@ -1,0 +1,3 @@
+"DESCRIPTION","DURATION IN MS","NAME","PARENT SUITE","START TIME","STATUS","STOP TIME","SUB SUITE","SUITE","TEST CLASS","TEST METHOD"
+"","12135","Should log in with valid credential  2","chromium","Mon Feb 24 20:12:11 IST 2025","passed","Mon Feb 24 20:12:24 IST 2025","Login Tests","login.spec.js","",""
+"","14495","Should log in with valid credentials","chromium","Mon Feb 24 20:12:11 IST 2025","passed","Mon Feb 24 20:12:26 IST 2025","Login Tests","login.spec.js","",""
