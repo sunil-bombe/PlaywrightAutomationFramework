@@ -1,12 +1,18 @@
+import { test, expect } from '@playwright/test';
+import { LoginPage } from '../pages/LoginPage';
+import { DashboardPage } from '../pages/DashboardPage';
+import * as allure from "allure-js-commons";
 
-const { test, expect } = require('@playwright/test');
-const LoginPage = require('../pages/LoginPage');
-const DashboardPage = require('../pages/DashboardPage');
-import { allure } from 'allure-playwright';
+test.beforeAll(async () => {
+  console.log('Starting the test suite...');
+  // allure.addEnvironment("Browser", "Chromium");
+  // allure.addEnvironment("Base URL", "https://opensource-demo.orangehrmlive.com");
+  
+});
 
 test.describe('Login Tests', () => {
-  let loginPage;
-  let dashboardPage;
+  let loginPage: LoginPage;
+  let dashboardPage: DashboardPage;
 
   test.beforeEach(async ({ page }) => {
     loginPage = new LoginPage(page);
@@ -17,7 +23,6 @@ test.describe('Login Tests', () => {
   });
 
   test('Should log in with valid credentials', async ({ page }) => {
-
     // Perform login
     await loginPage.login('Admin', 'admin123');
     // Verify successful login
