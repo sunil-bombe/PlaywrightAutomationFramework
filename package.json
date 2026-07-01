@@ -3,9 +3,10 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-  "test": "npx playwright test",
-  "allure-generate-open":"allure generate && allure open",
-  "allure:report": "allure generate allure-results --clean && allure open"
+    "test": "npx playwright test",
+    "allure-generate-open": "allure generate && allure open",
+    "allure:report": "allure generate allure-results --clean && allure open",
+    "run:allure": "node runner.js"
   },
   "keywords": [],
   "author": "",
@@ -13,7 +14,10 @@
   "description": "",
   "devDependencies": {
     "@playwright/test": "^1.49.1",
-    "@types/node": "^22.10.5"
+    "@types/node": "^22.20.0",
+    "allure-commandline": "^2.43.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3"
   },
   "dependencies": {
     "allure-playwright": "^3.0.9"
