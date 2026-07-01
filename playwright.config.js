@@ -1,5 +1,6 @@
 // @ts-check
 const { defineConfig, devices } = require('@playwright/test');
+import * as os from "node:os";
 import { allure } from 'allure-playwright';
 
 /**
@@ -24,8 +25,14 @@ module.exports = defineConfig({
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   //reporter: 'line',
   reporter: [
-    ['list'],
-    ['allure-playwright']
+    ['html'], // Built-in HTML report
+    ['allure-playwright', {
+        environmentInfo: {
+          os_platform: os.platform(),
+          os_release: os.release(),
+          os_version: os.version(),
+          node_version: process.version,
+        }}] // Allure report adapter
   ],
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
@@ -33,7 +40,10 @@ module.exports = defineConfig({
     /* Base URL to use in actions like `await page.goto('/')`. */
     baseURL: 'https://opensource-demo.orangehrmlive.com',
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
-    trace: 'on-first-retry',
+    trace: 'on',
+    video: 'on',
+    screenshot: 'on',
+    viewport: { width: 1280, height: 720 },
   },
 
   /* Configure projects for major browsers */

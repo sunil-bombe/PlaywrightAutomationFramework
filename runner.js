@@ -58,10 +58,11 @@ async function main() {
   );
 
   console.log('Opening Allure report...');
-  const reportPath = path.join(rootDir, 'allure-report', 'index.html');
-  if (!fs.existsSync(reportPath)) {
-    throw new Error('Allure report was not generated successfully.');
-  }
+   await runCommand(
+    npxCommand,
+    ['allure', 'serve', 'allure-results'],
+    'Opening Allure report generation'
+  );
 
   if (isWindows) {
     await runCommand('cmd', ['/c', 'start', '', reportPath], 'Opening Allure report');
@@ -70,7 +71,6 @@ async function main() {
   } else {
     await runCommand('xdg-open', [reportPath], 'Opening Allure report');
   }
-
   console.log('Runner finished successfully.');
 }
 
