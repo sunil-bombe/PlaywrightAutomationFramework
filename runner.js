@@ -44,7 +44,7 @@ async function main() {
   cleanDirectory(reportDir);
 
   console.log('Running Playwright tests...');
-  await runCommand(npxCommand, ['playwright', 'test'], 'Playwright test run');
+  await runCommand(npxCommand, ['cucumber-js','--parallel','2', '--retry','2', '--format','html:cucumber-report.html'], 'Playwright test run');
 
   if (!fs.existsSync(resultsDir)) {
     throw new Error('No allure results were generated.');

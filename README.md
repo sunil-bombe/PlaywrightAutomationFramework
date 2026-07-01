@@ -60,7 +60,16 @@ allure generate allure-results --clean && allure open
 ## 📊 Test Reports
 - **Playwright HTML Report**
   ```sh
-  npx playwright show-report
+  npx cucumber-js
+
+  //for parallel
+  npx cucumber-js --parallel 2
+  //for tags
+  npx cucumber-js --tags=@Regression
+
+  npx cucumber-js --format html:cucumber-report.html
+  // with report
+
   ```
 - **Allure Report**
   ```sh
