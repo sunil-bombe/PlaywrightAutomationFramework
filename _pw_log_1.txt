@@ -1,0 +1,14 @@
+
+Running 2 tests using 2 workers
+
+[1A[2K[1/2] [chromium] › REGRESSION_SUITS/e2e/Assignment.spec.js:58:5 › Test options and popup validations
+[1A[2K[2/2] [chromium] › REGRESSION_SUITS/e2e/Assignment.spec.js:30:5 › Assignment Test
+[1A[2K  2 passed (6.6s)
+
+To open last HTML report run:
+
+  npx playwright show-report
+
+
+
+PLAYWRIGHT_DONE_0

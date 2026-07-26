@@ -548,6 +548,10 @@ body.dark .runs-table th {
         <div class="meta-value" id="metaPlaywright">—</div>
       </div>
       <div class="meta-item">
+        <div class="meta-label">Terminal</div>
+        <div class="meta-value" id="metaPlatform">—</div>
+      </div>
+      <div class="meta-item">
         <div class="meta-label">Status</div>
         <div id="metaStatus">
           <span class="status-pill ready"><span class="status-dot"></span>Ready</span>
@@ -641,13 +645,13 @@ body.dark .runs-table th {
         <div>
           <button class="btn-primary" id="btnRun" onclick="runTest()" disabled>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-            Launch PowerShell &amp; Run
+            <span id="btnRunLabel">Launch &amp; Run</span>
           </button>
           <button class="btn-report" id="btnReport" onclick="showReport()" disabled>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
             Show Report
           </button>
-          <div class="btn-hint">Each run opens an independent PowerShell window</div>
+          <div class="btn-hint" id="runHint">Each run opens an independent terminal window</div>
           <div class="run-status-bar idle" id="runStatusBar">
             <div class="rsb-row">
               <div class="rsb-item">
@@ -705,8 +709,20 @@ let activeSuiteId = null;
 let selectedSpec  = null;
 let mode          = 'headless';
 let workers       = 2;
+let platform      = 'windows'; // 'windows' | 'mac' | 'other' — set from /api/meta
+let configFile    = 'playwright.config.ts'; // real detected filename, or null — set from /api/meta
 
 const $ = id => document.getElementById(id);
+
+// ── Platform-dependent labels ──
+function platformLabel() {
+  return platform === 'mac' ? 'Terminal' : (platform === 'windows' ? 'PowerShell' : 'Terminal');
+}
+function applyPlatformLabels() {
+  $('metaPlatform').textContent = platform === 'mac' ? 'Terminal.app' : (platform === 'windows' ? 'PowerShell' : 'Terminal');
+  $('btnRunLabel').textContent  = `Launch ${platformLabel()} & Run`;
+  $('runHint').textContent      = `Each run opens an independent ${platformLabel()} window`;
+}
 
 // ── Theme ──
 function initTheme() {
@@ -738,6 +754,10 @@ async function loadMeta() {
     $('metaEnv').textContent        = data.environment || '—';
     $('metaFramework').textContent  = data.frameworkVersion   ? `v${data.frameworkVersion}` : '—';
     $('metaPlaywright').textContent = data.playwrightVersion  ? `v${data.playwrightVersion}` : '—';
+    platform   = data.platform || 'windows';
+    configFile = data.configFile || null;
+    applyPlatformLabels();
+    updateCmd();
   } catch (_) {}
 }
 
@@ -822,7 +842,7 @@ function renderMain() {
         </div>
         <div class="run-all-label">
           <strong>Run Entire Suite</strong>
-          <span>${s.specs.length} specs · playwright.config.ts · headless</span>
+          <span>${s.specs.length} specs · ${configFile || 'auto-detected config'} · headless</span>
         </div>
       </div>
       <div class="cases-section-label">Individual Specs</div>
@@ -873,10 +893,14 @@ function updateCmd() {
   const flagLine = isAll
     ? `  <span class="cmd-flag">--workers</span>=<span class="cmd-val">${workers}</span>`
     : (mode === 'headed' ? `  <span class="cmd-flag">--headed</span>` : '');
+  const promptText = platform === 'mac' ? '$ ' : 'PS&gt; ';
+  const configLine = configFile
+    ? ` \\\n  <span class="cmd-flag">--config</span>=<span class="cmd-val">${configFile}</span>`
+    : '';
   el.innerHTML =
-    `<span class="cmd-ps">PS&gt; </span><span class="cmd-kw">npx</span> <span class="cmd-cmd">playwright</span> test \\\n` +
-    `  <span class="cmd-path">${target}</span> \\\n` +
-    `  <span class="cmd-flag">--config</span>=<span class="cmd-val">playwright.config.ts</span>` +
+    `<span class="cmd-ps">${promptText}</span><span class="cmd-kw">npx</span> <span class="cmd-cmd">playwright</span> test \\\n` +
+    `  <span class="cmd-path">${target}</span>` +
+    configLine +
     (flagLine ? ` \\\n${flagLine}` : '');
 }
 
@@ -891,7 +915,7 @@ async function runTest() {
   try {
     const data = await fetch('/api/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
     if (!data.ok) throw new Error(data.error);
-    showToast('PowerShell window launched');
+    showToast(`${platformLabel()} window launched`);
     setStatus(true);
     await pollRuns();
   } catch (err) {
@@ -1016,6 +1040,7 @@ function showToast(msg) {
 
 // ── Boot ──
 initTheme();
+applyPlatformLabels();
 loadMeta();
 loadSuites();
 checkReport();

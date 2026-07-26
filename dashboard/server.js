@@ -4,13 +4,16 @@
  *
  * Architecture:
  *  - Server spawns playwright directly (tracks exit code + status)
- *  - A separate PS window is opened to display live output via "npx playwright test ... | Tee-Object"
+ *  - A separate terminal window is opened to display live output via a tail script
+ *      - Windows  → PowerShell window (-EncodedCommand)
+ *      - macOS    → Terminal.app window (via osascript), tailing a temp .sh script
  *  - Browser polls /api/runs every 3s to get real status updates
  */
 
 const express       = require('express');
 const path          = require('path');
 const fs            = require('fs');
+const os            = require('os');
 const { spawn }     = require('child_process');
 const { glob }      = require('glob');
 
@@ -19,6 +22,28 @@ const PORT = 3000;
 
 const PROJECT_ROOT  = path.resolve(__dirname, '..');
 const REPORT_INDEX  = path.join(PROJECT_ROOT, 'playwright-report', 'index.html');
+
+// ── Platform detection ────────────────────
+const IS_WINDOWS = process.platform === 'win32';
+const IS_MAC     = process.platform === 'darwin';
+
+// ── Config file auto-detection ────────────
+// Don't hardcode "playwright.config.ts" — different projects use .ts/.js/.mjs/.cts,
+// and mismatches here cause "config does not exist" errors from Playwright itself.
+const CONFIG_CANDIDATES = [
+  'playwright.config.ts',
+  'playwright.config.js',
+  'playwright.config.mjs',
+  'playwright.config.cts',
+  'playwright.config.mts',
+];
+
+function findConfigFile() {
+  for (const name of CONFIG_CANDIDATES) {
+    if (fs.existsSync(path.join(PROJECT_ROOT, name))) return name;
+  }
+  return null; // let Playwright auto-resolve if we can't find one
+}
 
 // ── In-memory run store ──────────────────
 // { id, label, suite, modeLabel, status: 'running'|'done'|'failed', startTime, endTime, exitCode }
@@ -72,7 +97,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Suite scanner
 // ─────────────────────────────────────────
 async function scanSuites() {
-  const files = await glob('suites/**/e2e/*.spec.ts', { cwd: PROJECT_ROOT, posix: true });
+  const files = await glob('suites/**/e2e/*.spec.{ts,js}', { cwd: PROJECT_ROOT, posix: true });
   const map   = {};
   for (const file of files) {
     const parts = file.split('/');
@@ -137,6 +162,8 @@ app.get('/api/meta', (req, res) => {
     environment,
     frameworkVersion,
     playwrightVersion,
+    platform:          IS_MAC ? 'mac' : (IS_WINDOWS ? 'windows' : 'other'),
+    configFile:        findConfigFile(), // null if none of the common names were found
   });
 });
 
@@ -190,7 +217,7 @@ app.post('/api/show-report', (req, res) => {
   if (!fs.existsSync(REPORT_INDEX)) {
     return res.status(404).json({ ok: false, error: 'No report found. Run a test first.' });
   }
-  spawnPsWindow('[REPORT] Playwright HTML Report', 'npx playwright show-report playwright-report');
+  spawnTerminalWindow('[REPORT] Playwright HTML Report', 'npx playwright show-report playwright-report');
   res.json({ ok: true });
 });
 
@@ -207,10 +234,13 @@ app.post('/api/run', (req, res) => {
     ? `suites/${suiteName}/e2e`
     : `suites/${suiteName}/e2e/${specFile}`;
 
+  const configFile = findConfigFile();
   const args = [
     'playwright', 'test', testTarget,
-    '--config', 'playwright.config.ts',
   ];
+  if (configFile) {
+    args.push('--config', configFile);
+  } // else: no known config filename found — let Playwright auto-resolve its own default
   if (type === 'suite') {
     args.push(`--workers=${workers || 2}`);
   } else if (mode === 'headed') {
@@ -240,20 +270,21 @@ app.post('/api/run', (req, res) => {
   runs.unshift(run);
 
   // ── Spawn playwright via npx (tracked process) ──
+  // shell:true is needed on Windows for npx.cmd resolution; harmless on macOS/Linux too.
   const pw = spawn('npx', args, {
     cwd:   PROJECT_ROOT,
-    shell: true,           // needed on Windows for npx
+    shell: true,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
-  // Collect output to a temp log file so PS window can tail it
+  // Collect output to a temp log file so the terminal window can tail it
   const logFile = path.join(PROJECT_ROOT, `_pw_log_${run.id}.txt`);
   const logStream = fs.createWriteStream(logFile, { flags: 'w' });
   pw.stdout.pipe(logStream);
   pw.stderr.pipe(logStream);
 
-  // Open PS window that tails the log file
-  spawnPsWindow(label, buildTailCommand(logFile, run.id));
+  // Open terminal window that tails the log file
+  spawnTerminalWindow(label, buildTailCommand(logFile, run.id));
 
   pw.on('close', (code) => {
     logStream.end();
@@ -262,7 +293,7 @@ app.post('/api/run', (req, res) => {
     run.endTime  = Date.now();
     console.log(`[run #${run.id}] ${label} → exit ${code} (${run.status})`);
 
-    // Write sentinel so PS tail-window knows to stop
+    // Write sentinel so the terminal tail-window knows to stop
     try {
       fs.appendFileSync(logFile, `\n\nPLAYWRIGHT_DONE_${code}\n`);
     } catch (_) {}
@@ -280,10 +311,15 @@ app.post('/api/run', (req, res) => {
 });
 
 // ─────────────────────────────────────────
-// Helper: build PS tail command
+// Helper: build the tail command/script for the current OS
 // Tails log file until sentinel appears, then shows summary
 // ─────────────────────────────────────────
 function buildTailCommand(logFile, runId) {
+  return IS_MAC ? buildTailCommandMac(logFile) : buildTailCommandWindows(logFile);
+}
+
+// ── Windows: PowerShell tail script (unchanged behavior) ──
+function buildTailCommandWindows(logFile) {
   const logPs = logFile.replace(/\\/g, '\\\\');
   return [
     // Wait for log file to exist (up to 10s)
@@ -324,15 +360,66 @@ function buildTailCommand(logFile, runId) {
   ].join('\r\n');
 }
 
+// ── macOS: bash tail script (runs inside a real Terminal.app window) ──
+function buildTailCommandMac(logFile) {
+  const logSh = logFile.replace(/"/g, '\\"');
+  return [
+    `#!/bin/bash`,
+    `LOGFILE="${logSh}"`,
+    `WAITED=0`,
+    // Wait for log file to exist (up to 10s)
+    `while [ ! -f "$LOGFILE" ] && [ $WAITED -lt 50 ]; do sleep 0.2; WAITED=$((WAITED+1)); done`,
+    ``,
+    `POS=0`,
+    `EXITCODE=""`,
+    `DONE=0`,
+    `while [ $DONE -eq 0 ]; do`,
+    `  if [ -f "$LOGFILE" ]; then`,
+    `    CONTENT=$(cat "$LOGFILE")`,
+    `    LEN=\${#CONTENT}`,
+    `    if [ $LEN -gt $POS ]; then`,
+    `      NEWTEXT="\${CONTENT:$POS}"`,
+    `      printf '%s' "$NEWTEXT"`,
+    `      POS=$LEN`,
+    `    fi`,
+    `    if echo "$CONTENT" | grep -qE 'PLAYWRIGHT_DONE_[0-9]+'; then`,
+    `      EXITCODE=$(echo "$CONTENT" | grep -oE 'PLAYWRIGHT_DONE_[0-9]+' | tail -1 | grep -oE '[0-9]+$')`,
+    `      DONE=1`,
+    `    fi`,
+    `  fi`,
+    `  if [ $DONE -eq 0 ]; then sleep 0.3; fi`,
+    `done`,
+    ``,
+    `echo ""`,
+    `echo -e "\\033[90m---------------------------------\\033[0m"`,
+    `if [ "$EXITCODE" = "0" ]; then`,
+    `  echo -e "\\033[32m  PASSED\\033[0m\\033[97m  All tests passed.\\033[0m"`,
+    `else`,
+    `  echo -e "\\033[31m  FAILED\\033[0m\\033[97m  Tests finished with exit code $EXITCODE.\\033[0m"`,
+    `fi`,
+    `echo -e "\\033[90m---------------------------------\\033[0m"`,
+    `echo -e "\\033[37mPress ENTER to close this window...\\033[0m"`,
+    `read -r _`,
+    ``,
+    `rm -f "$LOGFILE"`,
+  ].join('\n');
+}
+
 // ─────────────────────────────────────────
-// Helper: open a new detached PS window
-// Uses -EncodedCommand (Base64 UTF-16LE) to avoid:
-//   1. Quote escaping issues with -Command
-//   2. ConstrainedLanguage policy blocking -File (.ps1)
+// Helper: open a new detached terminal window for the current OS
+//  - Windows → PowerShell (-EncodedCommand, avoids quoting/policy issues)
+//  - macOS   → Terminal.app (via osascript), running a temp bash script
 // ─────────────────────────────────────────
-function spawnPsWindow(title, psCommands) {
-  const safeTitle = title.replace(/'/g, "''");
-  const safeRoot  = PROJECT_ROOT.replace(/\\/g, '/').replace(/'/g, "''");
+function spawnTerminalWindow(title, psOrShCommands) {
+  if (IS_MAC) {
+    spawnMacTerminalWindow(title, psOrShCommands);
+  } else {
+    spawnWindowsPsWindow(title, psOrShCommands);
+  }
+}
+
+function spawnWindowsPsWindow(title, psCommands) {
+  const safeRoot = PROJECT_ROOT.replace(/\\/g, '/').replace(/'/g, "''");
 
   // ConstrainedLanguage mode: cannot set properties or invoke methods
   // Only use basic PS cmdlets: Set-Location, Write-Host, Get-Content, Start-Sleep, Remove-Item
@@ -352,6 +439,36 @@ function spawnPsWindow(title, psCommands) {
   child.unref();
 }
 
+function spawnMacTerminalWindow(title, shCommands) {
+  // Write the bash tail-script to a temp file, make it executable, then
+  // open a real Terminal.app window that runs it (and sets its tab title).
+  const scriptPath = path.join(os.tmpdir(), `pw_tail_${Date.now()}_${Math.random().toString(36).slice(2)}.sh`);
+
+  const fullScript = [
+    `#!/bin/bash`,
+    `printf '\\033]0;%s\\007' "${title.replace(/"/g, '\\"')}"`,
+    `cd "${PROJECT_ROOT.replace(/"/g, '\\"')}"`,
+    shCommands,
+    `rm -f "${scriptPath.replace(/"/g, '\\"')}"`,
+  ].join('\n');
+
+  fs.writeFileSync(scriptPath, fullScript, { mode: 0o755 });
+
+  // Escape for embedding inside an AppleScript double-quoted string
+  const safePath = scriptPath.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const appleScript = `tell application "Terminal"
+  activate
+  do script "bash \\"${safePath}\\""
+end tell`;
+
+  const child = spawn('osascript', ['-e', appleScript], {
+    cwd:   PROJECT_ROOT,
+    detached: true,
+    stdio: 'ignore',
+  });
+  child.unref();
+}
+
 // ─────────────────────────────────────────
 // Fallback
 // ─────────────────────────────────────────
@@ -367,5 +484,13 @@ app.listen(PORT, () => {
   console.log('  🎭 Playwright Dashboard');
   console.log(`  ➜  http://localhost:${PORT}`);
   console.log(`  ➜  Project root: ${PROJECT_ROOT}`);
+  console.log(`  ➜  Platform: ${IS_MAC ? 'macOS (Terminal.app)' : IS_WINDOWS ? 'Windows (PowerShell)' : process.platform + ' (unsupported terminal, falling back to PowerShell path)'}`);
+  const cfg = findConfigFile();
+  if (cfg) {
+    console.log(`  ➜  Config file: ${cfg}`);
+  } else {
+    console.log(`  ⚠  No playwright.config.(ts|js|mjs|cts|mts) found in ${PROJECT_ROOT}`);
+    console.log(`     Runs will be launched without --config; Playwright will try its own default resolution.`);
+  }
   console.log('');
 });

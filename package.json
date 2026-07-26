@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "assignment" : "npx playwright test tests/Assignment.spec.js",
+    "assignment" : "npx playwright test suites/REGRESSION_SUITS/e2e/Assignment.spec.js",
     "test": "npx playwright test",
     "apitest": "npx playwright test tests/apitest.spec.js",
     "allure-generate-open": "allure generate && allure open",
