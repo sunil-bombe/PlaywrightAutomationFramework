@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
+    "assignment" : "npx playwright test tests/Assignment.spec.js",
     "test": "npx playwright test",
+    "apitest": "npx playwright test tests/apitest.spec.js",
     "allure-generate-open": "allure generate && allure open",
     "allure:report": "allure generate allure-results --clean && allure open",
     "run:allure": "node runner.js"
